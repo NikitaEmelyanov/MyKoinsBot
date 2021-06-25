@@ -1,21 +1,57 @@
 import Foundation
 import TelegramBotSDK
 
-let token = readToken(from: "MY_TOKENS_BOT_TOKEN")
-let bot = TelegramBot(token: token)
-let router = Router(bot: bot)
-let controller = MainController(bot: bot)
+print("Checking if database is up to date")
+do {
+    try MigrationController.migrate()
+} catch {
+    print("Error while migrating the database: \(error)")
+    exit(1)
+}
 
-router["start"] = controller.start
-router["stop"] = controller.stop
-router["help"] = controller.help
-router["plus"] = controller.plus
+// Add MY_TOKENS_BOT_TOKEN to environment variables or create a file named 'MY_TOKENS_BOT_TOKEN'
+// containing bot's token in app's working dir.
+let token = readToken(from: "MY_TOKENS_BOT_TOKEN")
+
+let bot = TelegramBot(token: token)
+var routers = [String: Router]()
+
+let mainController = MainController()
+let addController = AddController()
+let sessionAccess = SessionAccess()
 
 print("Ready to accept commands")
+
 while let update = bot.nextUpdateSync() {
-    print("--- update: \(update)")
     
-    try router.process(update: update)
+    // Properties associated with request context
+    var properties = [String: AnyObject]()
+    
+    // ChatId is needed for choosing a router associated with particular chat
+    guard let chatId = update.message?.chat.id ??
+        update.callbackQuery?.message?.chat.id else {
+            continue
+    }
+    
+    do {
+        // Fetch Session object from database. It will be created if missing.
+        let session = try sessionAccess.initial(for: chatId)
+        
+        // Fetching from database is expensive operation. Store the session
+        // in properties to avoid fetching it again in handlers
+        properties[Properties.session] = session as AnyObject
+        
+        let router = routers[session.router_name]
+        if let router = router {
+            try router.process(update: update, properties: properties)
+        } else {
+            print("Warning: chat \(chatId) has invalid router: \(session.router_name)")
+        }
+    } catch {
+        bot.reportErrorAsync(chatId: chatId,
+                             text: "❗ Error while performing the operation.",
+                             errorDescription: "Recovered from exception: \(error)")
+    }
 }
 
 fatalError("Server stopped due to error: \(String(describing: bot.lastError))")
