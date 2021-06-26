@@ -16,9 +16,14 @@ let token = readToken(from: "MY_TOKENS_BOT_TOKEN")
 let bot = TelegramBot(token: token)
 var routers = [String: Router]()
 
+// Controllers:
 let mainController = MainController()
 let addController = AddController()
+
+// DB Accesses:
 let sessionAccess = SessionAccess()
+let categoryAccess = CategoryAccess()
+let expenseAccess = ExpenseAccess()
 
 print("Ready to accept commands")
 
